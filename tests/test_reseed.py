@@ -73,12 +73,12 @@ def test_time_threshold_triggers_reseed() -> None:
 
 
 def test_reseed_mixes_with_existing_secret() -> None:
-    """Reseed must not simply replace secret with pool bytes."""
+    """Reseed must not simply replace Key with pool bytes."""
     s = GeneratorState()
     s.initialize(b"original-secret-seed-material")
-    original = s._experimental_snapshot()["secret"]
+    original = s._experimental_snapshot()["key"]
     pool_bytes = b"\x00" * 64
     s.reseed(pool_bytes, reason="test")
-    new = s._experimental_snapshot()["secret"]
+    new = s._experimental_snapshot()["key"]
     assert new != original
     assert new != pool_bytes[:32]

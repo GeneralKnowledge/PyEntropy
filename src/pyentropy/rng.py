@@ -1,4 +1,4 @@
-"""PyEntropy RNG — hash-based userspace generator.
+"""PyEntropy RNG — HMAC-DRBG-backed userspace generator.
 
 Educational / experimental.  NOT a replacement for /dev/urandom,
 secrets, or a production OS CSPRNG.
@@ -6,7 +6,7 @@ secrets, or a production OS CSPRNG.
 Pipeline::
 
     entropy sources → observations → collector → pool → conditioner
-         → generator state → deterministic output → random bytes
+         → HMAC-DRBG (Instantiate / Generate / Reseed) → random bytes
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ import os
 import threading
 from typing import Any
 
-from pyentropy.conditioner import DOMAIN_STATE_INIT, Conditioner
 from pyentropy.diagnostics import uptime_seconds
 from pyentropy.encoding import to_hex
 from pyentropy.entropy.base import EntropySource
@@ -23,7 +22,7 @@ from pyentropy.entropy.composite import EntropyCollector
 from pyentropy.exceptions import InitializationError, NotReadyError, ValidationError
 from pyentropy.pool import POOL_SIZE, EntropyPool
 from pyentropy.reseed import ReseedController, ReseedPolicy
-from pyentropy.state import GeneratorState
+from pyentropy.state import PERSONALIZATION_TEST, GeneratorState
 
 
 def _validate_non_negative(name: str, value: int) -> None:
@@ -41,7 +40,7 @@ def _validate_positive(name: str, value: int) -> None:
 
 
 class RNG:
-    """Environmental-observation-seeded hash-based byte generator.
+    """Environmental-observation-seeded HMAC-DRBG byte generator.
 
     This class is for education and experimentation.  Do not use it to
     generate private keys or as a drop-in replacement for OS CSPRNGs.
@@ -57,10 +56,9 @@ class RNG:
         fork_aware: bool = True,
     ) -> None:
         self._lock = threading.RLock()
-        self._conditioner = Conditioner(digest_size=32)
         self._pool = EntropyPool(size=POOL_SIZE)
         self._collector = EntropyCollector(sources=sources, pool=self._pool)
-        self._state = GeneratorState(conditioner=self._conditioner)
+        self._state = GeneratorState()
         self._reseed = ReseedController(
             self._collector,
             self._state,
@@ -208,7 +206,7 @@ class RNG:
 
 
 class TestRNG:
-    """Deterministic hash-based RNG for tests and experiments only.
+    """Deterministic HMAC-DRBG for tests and experiments only.
 
     Same seed → same output sequence.  Completely separate from ``RNG``;
     normal ``RNG()`` never falls back to this mode on entropy failure.
@@ -232,16 +230,9 @@ class TestRNG:
         if not seed_bytes:
             raise ValidationError("seed must be non-empty")
 
-        self._conditioner = Conditioner(digest_size=32)
-        self._state = GeneratorState(conditioner=self._conditioner)
-        # Derive initial secret directly from the seed — no entropy sources.
-        material = self._conditioner.derive(
-            DOMAIN_STATE_INIT,
-            b"TestRNG",
-            seed_bytes,
-            size=32,
-        )
-        self._state.initialize(material)
+        # Instantiate HMAC-DRBG directly from the seed — no entropy sources.
+        self._state = GeneratorState(personalization=PERSONALIZATION_TEST)
+        self._state.initialize(seed_bytes)
         self._lock = threading.RLock()
         self._seed_repr = (
             repr(seed) if not isinstance(seed, bytes) else f"bytes[{len(seed)}]"

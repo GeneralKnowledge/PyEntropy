@@ -35,13 +35,20 @@ def test_randbelow_in_range(rng: RNG, n: int) -> None:
         assert 0 <= r < n
 
 
-def test_testrng_sequence_stable_across_sizes() -> None:
-    """Consuming the same total byte count in chunks matches one shot."""
+def test_testrng_same_request_sizes_match() -> None:
+    """Same seed + same request pattern → identical (HMAC-DRBG is deterministic)."""
+    a = TestRNG(b"chunk-eq")
+    b = TestRNG(b"chunk-eq")
+    assert a.bytes(40) + a.bytes(35) + a.bytes(25) == b.bytes(40) + b.bytes(35) + b.bytes(25)
+
+
+def test_hmac_drbg_generate_updates_per_call() -> None:
+    """NIST HMAC-DRBG Updates after each generate — chunking ≠ one-shot."""
     a = TestRNG(b"chunk-eq")
     b = TestRNG(b"chunk-eq")
     one = a.bytes(100)
-    parts = b.bytes(40) + b.bytes(35) + b.bytes(25)
-    assert one == parts
+    parts = b.bytes(40) + b.bytes(60)
+    assert one != parts
 
 
 def test_integer_bounds_property(rng: RNG) -> None:

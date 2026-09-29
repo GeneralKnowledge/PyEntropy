@@ -39,7 +39,7 @@ def test_state_changes_after_generate() -> None:
     snap1 = s._experimental_snapshot()
     s.generate(32)
     snap2 = s._experimental_snapshot()
-    assert snap1["secret"] != snap2["secret"]
+    assert snap1["key"] != snap2["key"] or snap1["v"] != snap2["v"]
 
 
 def test_successive_output_not_identical() -> None:
@@ -66,9 +66,9 @@ def test_negative_length() -> None:
 def test_reseed_changes_secret() -> None:
     s = GeneratorState()
     s.initialize(b"seed-F")
-    before = s._experimental_snapshot()["secret"]
+    before = s._experimental_snapshot()["key"]
     s.reseed(b"pool-material", reason="test")
-    after = s._experimental_snapshot()["secret"]
+    after = s._experimental_snapshot()["key"]
     assert before != after
     assert s.public_counters().reseed_count == 1
 

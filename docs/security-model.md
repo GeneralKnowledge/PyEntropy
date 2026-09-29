@@ -16,8 +16,8 @@ Unless carefully qualified, this project does **not** claim to be:
 ## Assumptions (educational)
 
 1. At least one entropy source returns some observation data at startup.
-2. SHA-256 / SHA-512 behave as one-way, mixing functions for teaching
-   purposes.
+2. HMAC-SHA-256 (HMAC-DRBG) and SHA-2 pool mixing behave as one-way,
+   mixing functions for teaching purposes.
 3. The process memory holding the secret is not readable by the attacker
    under study (except in explicit compromise experiments).
 4. Domain-separated hashing prevents trivial cross-construction confusion.

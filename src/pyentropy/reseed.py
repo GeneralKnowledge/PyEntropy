@@ -80,9 +80,9 @@ class ReseedController:
     def reseed(self, *, reason: str = "explicit", rounds: int = 2) -> None:
         """Collect observations, mix into pool, and reseed generator state.
 
-        Construction::
+        Construction (HMAC-DRBG_Reseed)::
 
-            new_secret = H(DOMAIN_RESEED || old_secret || pool || reseed_count)
+            Update(pool_snapshot || additional) mixes into existing (Key, V)
         """
         for _ in range(rounds):
             self._collector.collect_once()

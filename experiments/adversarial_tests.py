@@ -49,8 +49,8 @@ def exp_all_predictable() -> None:
     print(f"output A: {a.hex()}")
     print(f"output B: {b.hex()}")
     print(f"A != B:   {a != b}  (state evolution still changes output)")
-    print("Lesson: predictable inputs still yield changing output via the")
-    print("hash DRBG, but an attacker who models the inputs may predict it.")
+    print("Lesson: predictable inputs still yield changing output via")
+    print("HMAC-DRBG, but an attacker who models the inputs may predict it.")
 
 
 def exp_one_predictable() -> None:
@@ -202,9 +202,9 @@ def exp_state_compromise() -> None:
     _ = rng2.bytes(32)  # produce A'
     snap_after_a = rng2._experimental_state_snapshot()
     # From snap_after_a we can get B', but not walk backward to A'.
-    print("Backtracking: snapshot is post-evolution; prior output A is not")
-    print("exposed by continuing forward from the snapshot.")
-    print(f"(snapshot secret length={len(snap_after_a['secret'])} — not printed)")
+    print("Backtracking: after Generate, HMAC-DRBG Update advances (Key, V);")
+    print("prior output A is not exposed by continuing forward from the snapshot.")
+    print(f"(snapshot Key length={len(snap_after_a['key'])} — not printed)")
 
     # Reseed changes the picture
     rng3 = TestRNG(b"compromise-demo")

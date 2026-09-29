@@ -18,41 +18,48 @@ entropy collector     (EntropyCollector)
 entropy pool          (EntropyPool, 64 bytes)
       │
       ▼
-cryptographic conditioner  (Conditioner + domain tags)
+cryptographic conditioner  (Conditioner + POOL-MIX domain)
       │
       ▼
-generator state       (GeneratorState: secret + counters)
+HMAC-DRBG             (Key, V) — NIST SP 800-90A style
       │
-      ▼
-deterministic output generator  (OUTPUT-domain hash blocks)
+      ├── Instantiate (startup)
+      ├── Generate    (output + Update)
+      └── Reseed      (mix pool into Key, V)
       │
       ▼
 random bytes
-      │
-      ├── state evolution (STATE-UPDATE)
-      └── periodic / explicit reseed (RESEED)
 ```
 
 Each box is a separate module under `src/pyentropy/` so layers can be
 swapped, instrumented, or broken independently.
 
-## Domain separation
+## Why HMAC-DRBG here?
 
-Hash inputs are tagged with distinct ASCII domain prefixes:
+Earlier versions used a custom hash-based expand/evolve construction.
+PyEntropy now implements **HMAC-DRBG** ourselves (see `hmac_drbg.py`),
+using only the standard-library `hmac` + `hashlib` primitives — the same
+role SHA-2 plays for the pool.
+
+This is **not** wrapping another RNG package.  It is implementing a
+well-known DRBG construction so the educational story matches something
+you can look up in NIST SP 800-90A, while entropy collection and pooling
+remain the project's own laboratory.
+
+## Domain separation (pool layer)
+
+Hash inputs for the **pool** are tagged with ASCII domain prefixes via
+`Conditioner`:
 
 | Tag | Role |
 |-----|------|
 | `POOL-MIX` | Mix observations into the fixed-size pool |
-| `STATE-INIT` | Derive the initial secret from pool material |
-| `STATE-UPDATE` | One-way evolution after producing output |
-| `OUTPUT` | Expand secret+counter into output blocks |
-| `RESEED` | Combine existing secret with fresh pool material |
 
-Domain separation prevents accidental equivalence between constructions.
-Hashing the same payload under `OUTPUT` must not be interchangeable with
-hashing it under `RESEED`.
+Legacy tags (`STATE-INIT`, `STATE-UPDATE`, `OUTPUT`, `RESEED`) remain
+defined on the conditioner for experiments / comparison, but the live
+generator path uses HMAC-DRBG Instantiate / Generate / Reseed instead.
 
-Construction (all via `Conditioner`):
+Construction for pool mixing:
 
 ```
 H(len(domain)||domain || len(p0)||p0 || …)
@@ -75,47 +82,57 @@ Timestamps in metadata mean pool mixing is **not** bit-identical across
 runs; the underlying conditioner without wall-clock metadata *is*
 deterministic (see unit tests).
 
-## Generator state
+## HMAC-DRBG generator
+
+Implemented in `hmac_drbg.py`, wrapped by `GeneratorState`.
 
 Public (safe for `status()`):
 
-- counter, generation_count, reseed_count, bytes_generated
+- generation_count, reseed_count, bytes_generated
+- HMAC-DRBG `reseed_counter` (exposed as `counter`)
 - timestamps / reasons for last reseed
 
 Private (never via `status()` / CLI / normal logs):
 
-- secret state (≥ 256 bits)
+- HMAC-DRBG `Key` and `V` (each 32 bytes for SHA-256)
 
-### Output
-
-```
-block_i = H(OUTPUT || secret || counter_i)
-secret  ← H(STATE-UPDATE || secret || counter || block_i)
-```
-
-Blocks are concatenated and truncated to the requested length.  Unused
-bytes from a partial final block are **buffered** so that chunked reads
-(`bytes(40)+bytes(60)`) match a single `bytes(100)` call.
-
-### State evolution
-
-After each `generate()`:
+### Instantiate (startup)
 
 ```
-secret' = Derive(STATE-UPDATE, secret, counter, output_prefix)
+Key = 0x00 * outlen
+V   = 0x01 * outlen
+Update(entropy_input || nonce || personalization)
+reseed_counter = 1
 ```
 
-The counter alone is not the only thing that changes — the secret is
-advanced with a one-way hash.  This is the educational hook for studying
-backtracking resistance (see experiments).
+`entropy_input` is the current pool snapshot.  Personalization strings
+distinguish `RNG` from `TestRNG`.
+
+### Generate
+
+```
+# optional Update(additional_input)
+while need more bytes:
+    V = HMAC(Key, V)
+    append V
+return leftmost n bytes
+Update(additional_input)   # always — state evolution / backtracking resistance
+reseed_counter += 1
+```
+
+**Chunking note:** because Update runs once per `generate` call,
+`generate(100)` is not required to equal `generate(40)+generate(60)`.
+Same seed + same call pattern remains deterministic (`TestRNG`).
 
 ### Reseed
 
 ```
-secret' = Derive(RESEED, secret, pool_snapshot, reseed_count)
+Update(entropy_input || additional_input)
+reseed_counter = 1
 ```
 
-Raw environmental bytes never replace the secret by themselves.
+Raw environmental bytes never replace `(Key, V)` by themselves — they
+are mixed in through Update.
 
 Triggers (configurable, **not** security guarantees):
 
@@ -128,7 +145,7 @@ Triggers (configurable, **not** security guarantees):
 ## Startup
 
 ```
-create pool → collect observations → mix → derive secret → READY
+create pool → collect observations → mix → Instantiate(HMAC-DRBG) → READY
 ```
 
 If no source succeeds, `InitializationError` is raised.  There is **no**
@@ -146,8 +163,9 @@ silent fallback to a predictable generator.
 |--------|----------------|
 | `entropy/` | Sources + collector |
 | `pool.py` | Fixed-size mix pool |
-| `conditioner.py` | Domain-separated hashing |
-| `state.py` | Secret + output expansion |
+| `conditioner.py` | Domain-separated hashing (pool) |
+| `hmac_drbg.py` | HMAC-DRBG construction |
+| `state.py` | DRBG wrapper + public counters |
 | `reseed.py` | Policy + reseed orchestration |
 | `rng.py` | Public `RNG` / `TestRNG` |
 | `diagnostics.py` | Safe status formatting |

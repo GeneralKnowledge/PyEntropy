@@ -4,17 +4,17 @@
 
 PyEntropy implements a from-scratch Python RNG inspired by the *architecture*
 behind Linux `/dev/urandom` (entropy sources → pool → conditioning →
-generator state → output → reseed).  It is designed so you can inspect,
-measure, experiment with, break, and improve every layer.
+HMAC-DRBG → reseed).  It is designed so you can inspect, measure,
+experiment with, break, and improve every layer.
 
 ## What it is
 
-- A teaching tool for entropy collection, conditioning, state evolution,
+- A teaching tool for entropy collection, conditioning, HMAC-DRBG,
   reseeding, and statistical testing.
 - A laboratory with adversarial sources, fork/thread experiments, and
   state-compromise investigations.
-- Standard-library based (hashing via `hashlib`), with the RNG *architecture*
-  implemented by this project.
+- Standard-library based (`hashlib` / `hmac` primitives only); the pool,
+  collector, and HMAC-DRBG *construction* are implemented in this project.
 
 ## What it is not
 
@@ -41,16 +41,13 @@ entropy collector
 entropy pool  (64 bytes, hash-mixed)
       │
       ▼
-cryptographic conditioner  (domain-separated SHA-2)
+conditioner  (POOL-MIX)
       │
       ▼
-generator state  (secret ≥ 256 bits + counters)
+HMAC-DRBG  (Key, V) — Instantiate / Generate / Reseed
       │
       ▼
-deterministic output generator  (hash DRBG-style)
-      │
-      ▼
-random bytes  (+ state evolution, periodic reseed)
+random bytes
 ```
 
 See [docs/architecture.md](docs/architecture.md) for the full pipeline.
